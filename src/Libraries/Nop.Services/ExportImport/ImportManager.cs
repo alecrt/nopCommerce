@@ -291,7 +291,7 @@ namespace Nop.Services.ExportImport
             }
         }
 
-        protected virtual IList<PropertyByName<T>> GetPropertiesByExcelCells<T>(ExcelWorksheet worksheet)
+        public static IList<PropertyByName<T>> GetPropertiesByExcelCells<T>(ExcelWorksheet worksheet)
         {
             var properties = new List<PropertyByName<T>>();
             var poz = 1;
