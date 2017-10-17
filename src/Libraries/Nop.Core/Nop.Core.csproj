@@ -14,6 +14,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Plugins\Samples\DiscountRules.zip" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Plugins\Samples\DiscountRules.zip">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Autofac" Version="4.6.1" />
     <PackageReference Include="Autofac.Extensions.DependencyInjection" Version="4.2.0" />
     <PackageReference Include="AutoMapper" Version="6.1.1" />

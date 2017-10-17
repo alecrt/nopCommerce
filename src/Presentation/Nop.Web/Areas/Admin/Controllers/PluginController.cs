@@ -267,7 +267,8 @@ namespace Nop.Web.Areas.Admin.Controllers
 	        {
 	            if (archivefile != null && archivefile.Length > 0)
 	            {
-	                var pluginDescriptors = PluginManager.UploadPlugins(archivefile);
+                    //you can find a sample of the uploaded archive in Libraries\Nop.Core\Plugins\Samples
+                    var pluginDescriptors = PluginManager.UploadPlugins(archivefile);
 
                     //activity log
                     foreach (var pluginDescriptor in pluginDescriptors)
