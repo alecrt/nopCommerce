@@ -14,7 +14,6 @@ using Nop.Core.Domain.Orders;
 using Nop.Core.Domain.Shipping;
 using Nop.Core.Domain.Tax;
 using Nop.Core.Domain.Vendors;
-using Nop.Core.Extensions;
 using Nop.Services.Catalog;
 using Nop.Services.Common;
 using Nop.Services.Customers;
@@ -39,29 +38,34 @@ namespace Nop.Services.ExportImport
     {
         #region Fields
 
-        private readonly ICategoryService _categoryService;
-        private readonly IManufacturerService _manufacturerService;
-        private readonly ICustomerService _customerService;
-        private readonly IProductAttributeService _productAttributeService;
-        private readonly IPictureService _pictureService;
-        private readonly INewsLetterSubscriptionService _newsLetterSubscriptionService;
-        private readonly IStoreService _storeService;
-        private readonly IWorkContext _workContext;
-        private readonly ProductEditorSettings _productEditorSettings;
-        private readonly IVendorService _vendorService;
-        private readonly IProductTemplateService _productTemplateService;
-        private readonly IDateRangeService _dateRangeService;
-        private readonly ITaxCategoryService _taxCategoryService;
-        private readonly IMeasureService _measureService;
-        private readonly CatalogSettings _catalogSettings;
-        private readonly IGenericAttributeService _genericAttributeService;
-        private readonly ICustomerAttributeFormatter _customerAttributeFormatter;
-        private readonly OrderSettings _orderSettings;
-        private readonly ISpecificationAttributeService _specificationAttributeService;
+        protected ICategoryService _categoryService;
+        protected IManufacturerService _manufacturerService;
+        protected ICustomerService _customerService;
+        protected IProductAttributeService _productAttributeService;
+        protected IPictureService _pictureService;
+        protected INewsLetterSubscriptionService _newsLetterSubscriptionService;
+        protected IStoreService _storeService;
+        protected IWorkContext _workContext;
+        protected ProductEditorSettings _productEditorSettings;
+        protected IVendorService _vendorService;
+        protected IProductTemplateService _productTemplateService;
+        protected IDateRangeService _dateRangeService;
+        protected ITaxCategoryService _taxCategoryService;
+        protected IMeasureService _measureService;
+        protected CatalogSettings _catalogSettings;
+        protected IGenericAttributeService _genericAttributeService;
+        protected ICustomerAttributeFormatter _customerAttributeFormatter;
+        protected OrderSettings _orderSettings;
+        protected ISpecificationAttributeService _specificationAttributeService;
 
         #endregion
 
         #region Ctor
+
+        protected ExportManager()
+        {
+            
+        }
 
         public ExportManager(ICategoryService categoryService,
             IManufacturerService manufacturerService,
@@ -309,6 +313,22 @@ namespace Nop.Services.ExportImport
             }
         }
 
+        protected virtual bool IgnoreExportPoductProperty(Func<ProductEditorSettings, bool> func)
+        {
+            var productAdvancedMode = _workContext.CurrentCustomer.GetAttribute<bool>("product-advanced-mode");
+            return !productAdvancedMode && !func(_productEditorSettings);
+        }
+
+        protected virtual bool IgnoreExportCategoryProperty()
+        {
+            return !_workContext.CurrentCustomer.GetAttribute<bool>("category-advanced-mode");
+        }
+
+        protected virtual bool IgnoreExportManufacturerProperty()
+        {
+            return !_workContext.CurrentCustomer.GetAttribute<bool>("manufacturer-advanced-mode");
+        }
+
         private PropertyManager<ExportProductAttribute> GetProductAttributeManager()
         {
             var attributeProperties = new[]
@@ -364,22 +384,6 @@ namespace Nop.Services.ExportImport
             };
 
             return new PropertyManager<ExportSpecificationAttribute>(attributeProperties);
-        }
-
-        private bool IgnoreExportPoductProperty(Func<ProductEditorSettings, bool> func)
-        {
-            var productAdvancedMode = _workContext.CurrentCustomer.GetAttribute<bool>("product-advanced-mode");
-            return !productAdvancedMode && !func(_productEditorSettings);
-        }
-
-        private bool IgnoreExportCategoryProperty()
-        {
-            return !_workContext.CurrentCustomer.GetAttribute<bool>("category-advanced-mode");
-        }
-
-        private bool IgnoreExportManufacturerProperty()
-        {
-            return !_workContext.CurrentCustomer.GetAttribute<bool>("manufacturer-advanced-mode");
         }
         
         private byte[] ExportProductsToXlsxWithAttributes(PropertyByName<Product>[] properties, IEnumerable<Product> itemsToExport)
@@ -1237,7 +1241,15 @@ namespace Nop.Services.ExportImport
             };
 
             var productList = products.ToList();
-            var productAdvancedMode = _workContext.CurrentCustomer.GetAttribute<bool>("product-advanced-mode");
+
+            var productAdvancedMode=true;
+            try
+            {
+                productAdvancedMode = _workContext.CurrentCustomer.GetAttribute<bool>("product-advanced-mode");
+            }
+            catch(ArgumentNullException)
+            {
+            }
 
             if (_catalogSettings.ExportImportProductAttributes || _catalogSettings.ExportImportProductSpecificationAttributes)
             {

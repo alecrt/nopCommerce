@@ -2,20 +2,17 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Web;
 using Nop.Core;
 using Nop.Core.Domain.Catalog;
 using Nop.Core.Domain.Common;
 using Nop.Core.Domain.Customers;
 using Nop.Core.Domain.Directory;
-using Nop.Core.Domain.Localization;
 using Nop.Core.Domain.Media;
 using Nop.Core.Domain.Orders;
 using Nop.Core.Domain.Payments;
 using Nop.Core.Domain.Shipping;
 using Nop.Core.Domain.Tax;
 using Nop.Core.Infrastructure;
-using Nop.Core.Infrastructure.DependencyManagement;
 using Nop.Services.Authentication;
 using Nop.Services.Catalog;
 using Nop.Services.Common;
@@ -23,8 +20,6 @@ using Nop.Services.Customers;
 using Nop.Services.Directory;
 using Nop.Services.ExportImport;
 using Nop.Services.ExportImport.Help;
-using Nop.Services.Helpers;
-using Nop.Services.Localization;
 using Nop.Services.Media;
 using Nop.Services.Messages;
 using Nop.Services.Shipping.Date;
@@ -35,8 +30,10 @@ using Nop.Tests;
 using NUnit.Framework;
 using OfficeOpenXml;
 using Rhino.Mocks;
-using Nop.Web.Framework;
-using Autofac;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Nop.Core.Domain.Vendors;
+using Nop.Services.Localization;
 using Nop.Services.Seo;
 
 namespace Nop.Services.Tests.ExportImport
@@ -44,72 +41,31 @@ namespace Nop.Services.Tests.ExportImport
     [TestFixture]
     public class ExportManagerTests : ServiceTest
     {
-        private ICategoryService _categoryService;
-        private IManufacturerService _manufacturerService;
-        private IProductAttributeService _productAttributeService;
-        private IPictureService _pictureService;
-        private INewsLetterSubscriptionService _newsLetterSubscriptionService;
-        private IExportManager _exportManager;
-        private IStoreService _storeService;
-        private ProductEditorSettings _productEditorSettings;
-        private IWorkContext _workContext;
-        private IVendorService _vendorService;
-        private IProductTemplateService _productTemplateService;
-        private IDateRangeService _dateRangeService;
-        private ITaxCategoryService _taxCategoryService;
-        private IMeasureService _measureService;
-        private CatalogSettings _catalogSettings;
-        private IGenericAttributeService _genericAttributeService;
-        private ICustomerAttributeFormatter _customerAttributeFormatter;
 
-        private HttpContextBase _httpContext;
-        private ICustomerService _customerService;
-        private IStoreContext _storeContext;
+        private IPictureService _pictureService;
+        private IExportManager _exportManager;
+        private IGenericAttributeService _genericAttributeService;
         private IAuthenticationService _authenticationService;
-        private ILanguageService _languageService;
-        private ICurrencyService _currencyService;
-        private TaxSettings _taxSettings;
-        private CurrencySettings _currencySettings;
-        private LocalizationSettings _localizationSettings;
-        private IUserAgentHelper _userAgentHelper;
-        private IStoreMappingService _storeMappingService;
+        private ILocalizationService _localizationService;
+        private IWorkContext _workContext;
 
         [SetUp]
         public new void SetUp()
         {
-            _storeService = MockRepository.GenerateMock<IStoreService>();
-            _categoryService = MockRepository.GenerateMock<ICategoryService>();
-            _manufacturerService = MockRepository.GenerateMock<IManufacturerService>();
-            _productAttributeService = MockRepository.GenerateMock<IProductAttributeService>();
             _pictureService = MockRepository.GenerateMock<IPictureService>();
-
-            _httpContext = MockRepository.GenerateMock<HttpContextBase>();
-            _customerService = MockRepository.GenerateMock<ICustomerService>();
-            _storeContext = MockRepository.GenerateMock<IStoreContext>();
             _authenticationService = MockRepository.GenerateMock<IAuthenticationService>();
-            _languageService = MockRepository.GenerateMock<ILanguageService>();
-            _currencyService = MockRepository.GenerateMock<ICurrencyService>();
-            _taxSettings = new TaxSettings();
-            _currencySettings = new CurrencySettings();
-            _localizationSettings = new LocalizationSettings();
-            _userAgentHelper = MockRepository.GenerateMock<IUserAgentHelper>();
-            _storeMappingService = MockRepository.GenerateMock<IStoreMappingService>();
-            _vendorService = MockRepository.GenerateMock<IVendorService>();
-            _productTemplateService = MockRepository.GenerateMock<IProductTemplateService>();
-            _dateRangeService = MockRepository.GenerateMock<IDateRangeService>();
-            _taxCategoryService = MockRepository.GenerateMock<ITaxCategoryService>();
-            _measureService = MockRepository.GenerateMock<IMeasureService>();
-            _catalogSettings = new CatalogSettings();
+            _localizationService = MockRepository.GenerateMock<ILocalizationService>();
+            _workContext = MockRepository.GenerateMock<IWorkContext>();
 
             var nopEngine = MockRepository.GenerateMock<NopEngine>();
-            var containe = MockRepository.GenerateMock<IContainer>();
-            var containerManager = MockRepository.GenerateMock<ContainerManager>(containe);
-            nopEngine.Expect(x => x.ContainerManager).Return(containerManager);
+
+            var serviceProvider = MockRepository.GenerateMock<IServiceProvider>();
+            nopEngine.Expect(x => x.ServiceProvider).Return(serviceProvider);
 
             var urlRecordService = MockRepository.GenerateMock<IUrlRecordService>();
 
-            var genericAttributeService = MockRepository.GenerateMock<IGenericAttributeService>();
-            genericAttributeService.Expect(p => p.GetAttributesForEntity(1, "Customer"))
+            _genericAttributeService = MockRepository.GenerateMock<IGenericAttributeService>();
+            _genericAttributeService.Expect(p => p.GetAttributesForEntity(1, "Customer"))
                 .Return(new List<GenericAttribute>
                 {
                     new GenericAttribute
@@ -122,9 +78,13 @@ namespace Nop.Services.Tests.ExportImport
                     }
                 });
 
-            containerManager.Expect(x => x.Resolve<IGenericAttributeService>()).Return(genericAttributeService);
-            containerManager.Expect(x => x.Resolve<IUrlRecordService>()).Return(urlRecordService);
-            
+            serviceProvider.Expect(x => x.GetRequiredService(typeof(IGenericAttributeService))).Return(_genericAttributeService);
+            serviceProvider.Expect(x => x.GetRequiredService(typeof(IUrlRecordService))).Return(urlRecordService);
+            serviceProvider.Expect(x => x.GetRequiredService(typeof(ILocalizationService))).Return(_localizationService);
+            serviceProvider.Expect(x => x.GetRequiredService(typeof(IWorkContext))).Return(_workContext);
+
+            var httpContextAccessor = MockRepository.GenerateMock<IHttpContextAccessor>();
+            serviceProvider.Expect(x => x.GetRequiredService(typeof(IHttpContextAccessor))).Return(httpContextAccessor);
 
             EngineContext.Replace(nopEngine);
 
@@ -138,24 +98,9 @@ namespace Nop.Services.Tests.ExportImport
             _authenticationService.Expect(p => p.GetAuthenticatedCustomer()).Return(GetTestCustomer());
             _pictureService.Expect(p => p.GetPictureById(1)).Return(picture);
             _pictureService.Expect(p => p.GetThumbLocalPath(picture)).Return(@"c:\temp\picture.png");
+            _pictureService.Expect(p => p.GetPicturesByProductId(1, 3)).Return(new List<Picture> {picture});
 
-            _newsLetterSubscriptionService = MockRepository.GenerateMock<INewsLetterSubscriptionService>();
-            _productEditorSettings = new ProductEditorSettings();
-
-            //_genericAttributeService = new GenericAttributeService(_cacheManager, _genericAttributeRepository, _eventPublisher);
-            _customerAttributeFormatter = MockRepository.GenerateMock<ICustomerAttributeFormatter>();
-
-            _workContext = new WebWorkContext(_httpContext, _customerService, _vendorService, _storeContext,
-                _authenticationService, _languageService, _currencyService, _genericAttributeService, _taxSettings,
-                _currencySettings, _localizationSettings, _userAgentHelper, _storeMappingService);
-
-            _exportManager = new ExportManager(_categoryService,
-                _manufacturerService, _productAttributeService,
-                _pictureService, _newsLetterSubscriptionService,
-                _storeService, _workContext, _productEditorSettings,
-                _vendorService, _productTemplateService, _dateRangeService,
-                _taxCategoryService, _measureService, _catalogSettings,
-                _genericAttributeService, _customerAttributeFormatter);
+            _exportManager = new TestExportManager(_pictureService, _genericAttributeService, _workContext);
         }
 
         #region Utilities
@@ -214,9 +159,7 @@ namespace Nop.Services.Tests.ExportImport
                     objectPropertyValue = ((DateTime)objectPropertyValue).ToOADate();
                 }
 
-                Assert.AreEqual(objectPropertyValue, property.PropertyValue,
-                    string.Format("The property \"{0}.{1}\" of these objects is not equal", typeof(T).Name,
-                        property.PropertyName));
+                Assert.AreEqual(objectPropertyValue, property.PropertyValue, $"The property \"{typeof(T).Name}.{property.PropertyName}\" of these objects is not equal");
             }
 
             return actual;
@@ -238,53 +181,74 @@ namespace Nop.Services.Tests.ExportImport
             return obj;
         }
 
+        protected Address GetTestBillingAddress()
+        {
+            return new Address
+            {
+                FirstName = "FirstName 1",
+                LastName = "LastName 1",
+                Email = "Email 1",
+                Company = "Company 1",
+                City = "City 1",
+                Address1 = "Address1a",
+                Address2 = "Address1a",
+                ZipPostalCode = "ZipPostalCode 1",
+                PhoneNumber = "PhoneNumber 1",
+                FaxNumber = "FaxNumber 1",
+                CreatedOnUtc = new DateTime(2010, 01, 01),
+                Country = GetTestCountry()
+            };
+        }
+
+        protected Address GetTestShippingAddress()
+        {
+            return new Address
+            {
+                FirstName = "FirstName 2",
+                LastName = "LastName 2",
+                Email = "Email 2",
+                Company = "Company 2",
+                City = "City 2",
+                Address1 = "Address2a",
+                Address2 = "Address2b",
+                ZipPostalCode = "ZipPostalCode 2",
+                PhoneNumber = "PhoneNumber 2",
+                FaxNumber = "FaxNumber 2",
+                CreatedOnUtc = new DateTime(2010, 01, 01),
+                Country = GetTestCountry()
+            };
+        }
+
+        protected Country GetTestCountry()
+        {
+            return new Country
+            {
+                Name = "United States",
+                AllowsBilling = true,
+                AllowsShipping = true,
+                TwoLetterIsoCode = "US",
+                ThreeLetterIsoCode = "USA",
+                NumericIsoCode = 1,
+                SubjectToVat = true,
+                Published = true,
+                DisplayOrder = 1
+            };
+        }
+
+        protected Customer GetTestCustomer()
+        {
+            return new Customer
+            {
+                Id = 1,
+                CustomerGuid = Guid.NewGuid(),
+                AdminComment = "some comment here",
+                Active = true,
+                Deleted = false,
+                CreatedOnUtc = new DateTime(2010, 01, 01),
+            };
+        }
+
         #endregion
-
-        //[Test]
-        //public void Can_export_manufacturers_to_xml()
-        //{
-        //    var manufacturers = new List<Manufacturer>()
-        //    {
-        //        new Manufacturer()
-        //        {
-        //            Id = 1,
-        //            Name = "Name",
-        //            Description = "Description 1",
-        //            MetaKeywords = "Meta keywords",
-        //            MetaDescription = "Meta description",
-        //            MetaTitle = "Meta title",
-        //            PictureId = 0,
-        //            PageSize = 4,
-        //            PriceRanges = "1-3;",
-        //            Published = true,
-        //            Deleted = false,
-        //            DisplayOrder = 5,
-        //            CreatedOnUtc = new DateTime(2010, 01, 01),
-        //            UpdatedOnUtc = new DateTime(2010, 01, 02),
-        //        },
-        //        new Manufacturer()
-        //        {
-        //            Id = 2,
-        //            Name = "Name 2",
-        //            Description = "Description 2",
-        //            MetaKeywords = "Meta keywords",
-        //            MetaDescription = "Meta description",
-        //            MetaTitle = "Meta title",
-        //            PictureId = 0,
-        //            PageSize = 4,
-        //            PriceRanges = "1-3;",
-        //            Published = true,
-        //            Deleted = false,
-        //            DisplayOrder = 5,
-        //            CreatedOnUtc = new DateTime(2010, 01, 01),
-        //            UpdatedOnUtc = new DateTime(2010, 01, 02),
-        //        }
-        //    };
-
-        //    string result = _exportManager.ExportManufacturersToXml(manufacturers);
-        //    //TODO test it
-        //    String.IsNullOrEmpty(result).ShouldBeFalse();
-        //}
 
         #region Test export to excel
 
@@ -360,7 +324,7 @@ namespace Nop.Services.Tests.ExportImport
 
             manager.ReadFromXlsx(worksheet, 2);
 
-            var replacePairce = new Dictionary<string, string>
+            var replacePairse = new Dictionary<string, string>
                 {
                     { "OrderId", "Id" },
                     { "OrderStatusId", "OrderStatus" },
@@ -372,7 +336,7 @@ namespace Nop.Services.Tests.ExportImport
             var order = orders.First();
 
             var ignore = new List<string>();
-            ignore.AddRange(replacePairce.Values);
+            ignore.AddRange(replacePairse.Values);
 
             //not exported fields
             ignore.AddRange(new[]
@@ -385,7 +349,7 @@ namespace Nop.Services.Tests.ExportImport
                 "CaptureTransactionId", "CaptureTransactionResult", "SubscriptionTransactionId", "PaidDateUtc",
                 "Deleted", "PickupAddress", "RedeemedRewardPointsEntry", "DiscountUsageHistory", "GiftCardUsageHistory",
                 "OrderNotes", "OrderItems", "Shipments", "OrderStatus", "PaymentStatus", "ShippingStatus ",
-                "CustomerTaxDisplayType", "TaxRatesDictionary"
+                "CustomerTaxDisplayType", "TaxRatesDictionary", "CustomOrderNumber"
             });
 
             //fields tested individually
@@ -395,7 +359,7 @@ namespace Nop.Services.Tests.ExportImport
             });
 
             AreAllObjectPropertiesPresent(order, manager, ignore.ToArray());
-            PropertiesShouldEqual(order, manager, replacePairce);
+            PropertiesShouldEqual(order, manager, replacePairse);
 
             var addressFilds = new List<string>
             {
@@ -414,13 +378,13 @@ namespace Nop.Services.Tests.ExportImport
             };
 
             const string billingPatern = "Billing";
-            replacePairce = addressFilds.ToDictionary(p => billingPatern + p, p => p);
-            PropertiesShouldEqual(billingAddress, manager, replacePairce, "CreatedOnUtc", "BillingCountry");
+            replacePairse = addressFilds.ToDictionary(p => billingPatern + p, p => p);
+            PropertiesShouldEqual(billingAddress, manager, replacePairse, "CreatedOnUtc", "BillingCountry");
             manager.GetProperties.First(p => p.PropertyName == "BillingCountry").PropertyValue.ShouldEqual(billingAddress.Country.Name);
 
             const string shippingPatern = "Shipping";
-            replacePairce = addressFilds.ToDictionary(p => shippingPatern + p, p => p);
-            PropertiesShouldEqual(shippingAddress, manager, replacePairce, "CreatedOnUtc", "ShippingCountry");
+            replacePairse = addressFilds.ToDictionary(p => shippingPatern + p, p => p);
+            PropertiesShouldEqual(shippingAddress, manager, replacePairse, "CreatedOnUtc", "ShippingCountry");
             manager.GetProperties.First(p => p.PropertyName == "ShippingCountry").PropertyValue.ShouldEqual(shippingAddress.Country.Name);
         }
 
@@ -454,84 +418,276 @@ namespace Nop.Services.Tests.ExportImport
 
             manager.ReadFromXlsx(worksheet, 2);
 
-            var replacePairce = new Dictionary<string, string>();
-
             var manufacturer = manufacturers.First();
 
             var ignore = new List<string> { "Picture", "PictureId", "SubjectToAcl", "LimitedToStores", "Deleted", "CreatedOnUtc", "UpdatedOnUtc", "AppliedDiscounts" };
 
             AreAllObjectPropertiesPresent(manufacturer, manager, ignore.ToArray());
-            PropertiesShouldEqual(manufacturer, manager, replacePairce);
+            PropertiesShouldEqual(manufacturer, manager, new Dictionary<string, string>());
 
             manager.GetProperties.First(p => p.PropertyName == "Picture").PropertyValue.ShouldEqual(@"c:\temp\picture.png");
         }
+
+        [Test]
+        public void can_export_customers_to_xlsx()
+        {
+            var customers = new List<Customer>
+            {
+                new Customer
+                {
+                    Active = true,
+                    AffiliateId = 0,
+                    CreatedOnUtc = new DateTime(2010, 01, 04),
+                    CustomerGuid = Guid.NewGuid(),
+                    Email = "test@test.com",
+                    Username = "Test",
+                    IsTaxExempt = true,
+                    VendorId = 0
+                }
+            };
+
+            var excelData = _exportManager.ExportCustomersToXlsx(customers);
+            var worksheet = GetWorksheets(excelData);
+            var manager = GetPropertyManager<Customer>(worksheet);
+
+            manager.ReadFromXlsx(worksheet, 2);
+            var customer = customers.First();
+
+            var ignore = new List<string> {"Id", "ExternalAuthenticationRecords", "CustomerRoles", "ShoppingCartItems", "ReturnRequests", "BillingAddress", "ShippingAddress", "Addresses", "AdminComment", "EmailToRevalidate", "HasShoppingCartItems", "RequireReLogin", "FailedLoginAttempts", "CannotLoginUntilDateUtc", "Deleted", "IsSystemAccount", "SystemName", "LastIpAddress", "LastLoginDateUtc", "LastActivityDateUtc", "RegisteredInStoreId" };
+
+            AreAllObjectPropertiesPresent(customer, manager, ignore.ToArray());
+            PropertiesShouldEqual(customer, manager, new Dictionary<string, string>());
+        }
+
+        [Test]
+        public void can_export_categories_to_xlsx()
+        {
+            var categories = new List<Category>
+            {
+                new Category
+                {
+                    Id = 1,
+                    Name = "TestCategory",
+                    Description = "TestDescription",
+                    CategoryTemplateId = 1,
+                    MetaKeywords = "TestMetaKeywords",
+                    MetaDescription = "TestMetaDescription",
+                    MetaTitle = "TestMetaTitle",
+                    ParentCategoryId = 0,
+                    PictureId = 1,
+                    PageSize = 10,
+                    AllowCustomersToSelectPageSize = true,
+                    PageSizeOptions = "10;20;30",
+                    PriceRanges = "100;200;300",
+                    ShowOnHomePage = true,
+                    IncludeInTopMenu = true,
+                    Published = true,
+                    DisplayOrder = 1
+                }
+            };
+
+            var excelData = _exportManager.ExportCategoriesToXlsx(categories);
+            var worksheet = GetWorksheets(excelData);
+            var manager = GetPropertyManager<Category>(worksheet);
+
+            manager.ReadFromXlsx(worksheet, 2);
+            var category = categories.First();
+
+            var ignore = new List<string> { "CreatedOnUtc", "Picture", "PictureId", "AppliedDiscounts", "UpdatedOnUtc", "SubjectToAcl", "LimitedToStores", "Deleted" };
+
+            AreAllObjectPropertiesPresent(category, manager, ignore.ToArray());
+            PropertiesShouldEqual(category, manager, new Dictionary<string, string>());
+
+            manager.GetProperties.First(p => p.PropertyName == "Picture").PropertyValue.ShouldEqual(@"c:\temp\picture.png");
+        }
+
+        [Test]
+        public void can_export_products_to_xlsx()
+        {
+            var replacePairse = new Dictionary<string, string>
+            {
+                { "ProductId", "Id" },
+                { "ProductType", "ProductTypeId" },
+                { "Vendor", "VendorId" },
+                { "ProductTemplate", "ProductTemplateId" },
+                { "DeliveryDate", "DeliveryDateId"},
+                { "TaxCategory", "TaxCategoryId"},
+                { "ManageInventoryMethod", "ManageInventoryMethodId" },
+                { "ProductAvailabilityRange", "ProductAvailabilityRangeId" },
+                { "LowStockActivity", "LowStockActivityId" },
+                {"BackorderMode", "BackorderModeId" },
+                {"BasepriceUnit", "BasepriceUnitId" },
+                {"BasepriceBaseUnit", "BasepriceBaseUnitId" }
+            };
+
+            var products = new List<Product>
+            {
+                new Product
+                {
+                    Id = 1,
+                    ProductTypeId = 1,
+                    ParentGroupedProductId =0,
+                    VisibleIndividually = true,
+                    Name = "TestProduct",
+                    ShortDescription = "TestShortDescription",
+                    FullDescription = "TestFullDescription",
+                    VendorId = 0,
+                    ProductTemplateId = 1,
+                    ShowOnHomePage = true,
+                    MetaKeywords = "TestMetaKeywords",
+                    MetaDescription = "TestMetaDescription",
+                    MetaTitle = "TestMetaTitle",
+                    AllowCustomerReviews = true,
+                    Published = true,
+                    Sku = "TestSku",
+                    ManufacturerPartNumber = "TestManufacturerPartNumber",
+                    Gtin = "TestGtin",
+                    IsGiftCard = false,
+                    GiftCardTypeId = (int)GiftCardType.Virtual,
+                    OverriddenGiftCardAmount = 0,
+                    RequireOtherProducts = false,
+                    RequiredProductIds = "0",
+                    AutomaticallyAddRequiredProducts = true,
+                    IsDownload = false,
+                    DownloadId = 0,
+                    UnlimitedDownloads = true,
+                    MaxNumberOfDownloads = 100,
+                    DownloadActivationTypeId = (int)DownloadActivationType.WhenOrderIsPaid,
+                    HasSampleDownload = false,
+                    SampleDownloadId = 0,
+                    HasUserAgreement = false,
+                    UserAgreementText = string.Empty,
+                    IsRecurring = false,
+                    RecurringCycleLength = 1,
+                    RecurringCyclePeriodId = (int)RecurringProductCyclePeriod.Years,
+                    RecurringTotalCycles = 10,
+                    IsRental = false,
+                    RentalPriceLength = 1,
+                    RentalPricePeriodId = (int)RentalPricePeriod.Years,
+                    IsShipEnabled = true,
+                    IsFreeShipping = true,
+                    ShipSeparately = false,
+                    AdditionalShippingCharge = 0,
+                    DeliveryDateId = 0,
+                    IsTaxExempt = false,
+                    TaxCategoryId = 0,
+                    IsTelecommunicationsOrBroadcastingOrElectronicServices = false,
+                    ManageInventoryMethodId = (int) ManageInventoryMethod.DontManageStock,
+                    ProductAvailabilityRangeId = 0,
+                    UseMultipleWarehouses = false,
+                    WarehouseId = 0,
+                    StockQuantity = 100,
+                    DisplayStockAvailability = true,
+                    DisplayStockQuantity = true,
+                    MinStockQuantity = 1,
+                    LowStockActivityId = (int)LowStockActivity.Nothing,
+                    NotifyAdminForQuantityBelow = 5,
+                    BackorderModeId=(int)BackorderMode.NoBackorders,
+                    AllowBackInStockSubscriptions = true,
+                    OrderMinimumQuantity = 1,
+                    OrderMaximumQuantity = 10,
+                    AllowedQuantities = "1;5;10",
+                    NotReturnable = true,
+                    DisableBuyButton = true,
+                    DisableWishlistButton = true,
+                    AvailableForPreOrder = true,
+                    PreOrderAvailabilityStartDateTimeUtc = new DateTime(2010, 01, 04),
+                    CallForPrice = true,
+                    Price = 40,
+                    OldPrice = 50,
+                    ProductCost = 40,
+                    CustomerEntersPrice = true,
+                    MinimumCustomerEnteredPrice = 40,
+                    MaximumCustomerEnteredPrice = 60,
+                    BasepriceEnabled = true,
+                    BasepriceAmount = 40,
+                    BasepriceBaseUnitId = 0,
+                    BasepriceBaseAmount = 40,
+                    BasepriceUnitId = 0,
+                    MarkAsNew = true,
+                    MarkAsNewStartDateTimeUtc = new DateTime(2010, 01, 04),
+                    MarkAsNewEndDateTimeUtc = new DateTime(2020, 01, 04),
+                    Weight = 10,
+                    Length = 10,
+                    Width = 10,
+                    Height = 10,
+                }
+            };
+
+            var ignore = new List<string> { "Categories", "Manufacturers", "ProductTags" };
+
+            var excelData = _exportManager.ExportProductsToXlsx(products);
+            var worksheet = GetWorksheets(excelData);
+            var manager = GetPropertyManager<Product>(worksheet);
+
+            manager.ReadFromXlsx(worksheet, 2);
+            var product = products.First();
+            
+            AreAllObjectPropertiesPresent(product, manager, ignore.ToArray());
+            PropertiesShouldEqual(product, manager, new Dictionary<string, string>());
+        }
+
         #endregion
+    }
 
-        protected Address GetTestBillingAddress()
+    #region Nested classes
+
+    internal class TestExportManager : ExportManager
+    {
+        public TestExportManager(IPictureService pictureService, IGenericAttributeService genericAttributeService, IWorkContext workContext)
         {
-            return new Address
-            {
-                FirstName = "FirstName 1",
-                LastName = "LastName 1",
-                Email = "Email 1",
-                Company = "Company 1",
-                City = "City 1",
-                Address1 = "Address1a",
-                Address2 = "Address1a",
-                ZipPostalCode = "ZipPostalCode 1",
-                PhoneNumber = "PhoneNumber 1",
-                FaxNumber = "FaxNumber 1",
-                CreatedOnUtc = new DateTime(2010, 01, 01),
-                Country = GetTestCountry()
-            };
+            this._storeService = MockRepository.GenerateMock<IStoreService>();
+            this._productAttributeService = MockRepository.GenerateMock<IProductAttributeService>();
+            this._vendorService = MockRepository.GenerateMock<IVendorService>();
+
+            _vendorService.Expect(v => v.GetAllVendors(showHidden: true))
+                .Return(new PagedList<Vendor>(new List<Vendor> {new Vendor()}, 0, 10));
+
+            this._productTemplateService = MockRepository.GenerateMock<IProductTemplateService>();
+
+            _productTemplateService.Expect(p => p.GetAllProductTemplates())
+                .Return(new List<ProductTemplate> {new ProductTemplate()});
+
+            this._dateRangeService = MockRepository.GenerateMock<IDateRangeService>();
+            _dateRangeService.Expect(d => d.GetAllDeliveryDates()).Return(new List<DeliveryDate> {new DeliveryDate()});
+            _dateRangeService.Expect(d => d.GetAllProductAvailabilityRanges()).Return(new List<ProductAvailabilityRange> {new ProductAvailabilityRange()});
+            this._taxCategoryService = MockRepository.GenerateMock<ITaxCategoryService>();
+            _taxCategoryService.Expect(t => t.GetAllTaxCategories()).Return(new List<TaxCategory> {new TaxCategory()});
+            this._measureService = MockRepository.GenerateMock<IMeasureService>();
+            _measureService.Expect(m => m.GetAllMeasureWeights()).Return(new List<MeasureWeight> {new MeasureWeight()});
+            this._catalogSettings = new CatalogSettings();
+            this._specificationAttributeService = MockRepository.GenerateMock<ISpecificationAttributeService>();
+            this._orderSettings = new OrderSettings();
+            this._categoryService = MockRepository.GenerateMock<ICategoryService>();
+            _categoryService.Expect(c => c.GetProductCategoriesByProductId(1, true))
+                .Return(new List<ProductCategory>());
+            this._manufacturerService = MockRepository.GenerateMock<IManufacturerService>();
+            _manufacturerService.Expect(m => m.GetProductManufacturersByProductId(1, true)).Return(new List<ProductManufacturer>());
+            this._customerService = MockRepository.GenerateMock<ICustomerService>();
+            this._workContext = workContext;
+            this._newsLetterSubscriptionService = MockRepository.GenerateMock<INewsLetterSubscriptionService>();
+            this._productEditorSettings = new ProductEditorSettings();
+            this._customerAttributeFormatter = MockRepository.GenerateMock<ICustomerAttributeFormatter>();
+
+            this._genericAttributeService = genericAttributeService;
+            this._pictureService = pictureService;
         }
 
-        protected Address GetTestShippingAddress()
+        protected override bool IgnoreExportPoductProperty(Func<ProductEditorSettings, bool> func)
         {
-            return new Address
-            {
-                FirstName = "FirstName 2",
-                LastName = "LastName 2",
-                Email = "Email 2",
-                Company = "Company 2",
-                City = "City 2",
-                Address1 = "Address2a",
-                Address2 = "Address2b",
-                ZipPostalCode = "ZipPostalCode 2",
-                PhoneNumber = "PhoneNumber 2",
-                FaxNumber = "FaxNumber 2",
-                CreatedOnUtc = new DateTime(2010, 01, 01),
-                Country = GetTestCountry()
-            };
+            return false;
         }
 
-        protected Country GetTestCountry()
+        protected override bool IgnoreExportCategoryProperty()
         {
-            return new Country
-            {
-                Name = "United States",
-                AllowsBilling = true,
-                AllowsShipping = true,
-                TwoLetterIsoCode = "US",
-                ThreeLetterIsoCode = "USA",
-                NumericIsoCode = 1,
-                SubjectToVat = true,
-                Published = true,
-                DisplayOrder = 1
-            };
+            return false;
         }
 
-        protected Customer GetTestCustomer()
+        protected override bool IgnoreExportManufacturerProperty()
         {
-            return new Customer
-            {
-                Id = 1,
-                CustomerGuid = Guid.NewGuid(),
-                AdminComment = "some comment here",
-                Active = true,
-                Deleted = false,
-                CreatedOnUtc = new DateTime(2010, 01, 01),
-            };
+            return false;
         }
     }
+
+    #endregion
 }
